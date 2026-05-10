@@ -54,7 +54,6 @@ last.pt
 coco128/
 coco/
 VOCdevkit/
-*.zip
 *.tar
 *.tar.gz
 
