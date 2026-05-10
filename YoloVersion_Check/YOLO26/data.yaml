@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 5
+names: ['Bud_formation', 'Flowering', 'Mature_Cane', 'Seedling', 'Vegetative']
+
+roboflow:
+  workspace: kavinis-workspace
+  project: orchid-stage-detection-new
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/kavinis-workspace/orchid-stage-detection-new/dataset/2

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YOLO26 — detection</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      --border: #30363d;
+      --muted: #8b949e;
+      --accent: #238636;
+      --card: #161b22;
+    }
+    body { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1rem 2rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.35rem; }
+    .sub { color: var(--muted); font-size: 0.95rem; margin-bottom: 1rem; }
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+      padding: 1rem; margin-bottom: 1rem;
+    }
+    .toolbar > * { flex: 0 0 auto; }
+    input[type="file"] { color: var(--muted); max-width: 240px; }
+    button {
+      background: var(--accent); color: #fff; border: none; padding: 0.55rem 1.1rem;
+      border-radius: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 500;
+    }
+    button.secondary { background: #21262d; border: 1px solid var(--border); color: #e6edf3; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button:hover:not(:disabled) { filter: brightness(1.1); }
+    .control label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.2rem; }
+    .control input[type="range"] { width: 200px; }
+    #status { min-height: 1.4rem; font-size: 0.9rem; margin: 0.5rem 0; }
+    #status.error { color: #f85149; }
+    #status.ok { color: #3fb950; }
+    .grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+    }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    figure {
+      margin: 0; background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.75rem; overflow: hidden;
+    }
+    figcaption { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .grid img {
+      width: 100%; height: auto; display: block; border-radius: 6px;
+      background: #010409;
+    }
+    #peekBlock {
+      margin-top: 1rem; padding: 1rem; background: #1c2128; border: 1px solid #444c56;
+      border-radius: 10px; display: none;
+    }
+    #peekBlock.visible { display: block; }
+    #peekBlock h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .candidates { margin: 0.5rem 0 0; padding-left: 1.2rem; color: #adbac7; font-size: 0.9rem; }
+    .meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.75rem; line-height: 1.5; }
+    a { color: #58a6ff; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+    .chip {
+      font-size: 0.75rem; padding: 0.2rem 0.5rem; background: #21262d;
+      border-radius: 999px; border: 1px solid var(--border); color: #adbac7;
+    }
+  </style>
+</head>
+<body>
+  <h1>Run detection</h1>
+  <p class="sub">Loads only <code>last.pt</code> (see <a href="/health">/health</a>). Upload JPG, PNG, or WebP. Lower <strong>confidence</strong> if you see no boxes.</p>
+
+  <div class="toolbar">
+    <div>
+      <label class="control" for="file" style="margin:0;">Image</label>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" />
+    </div>
+    <div class="control">
+      <label for="conf">Confidence threshold: <strong id="confValue">0.05</strong></label>
+      <input type="range" id="conf" min="0.01" max="0.90" step="0.01" value="0.05" />
+    </div>
+    <button type="button" id="go">Run detection</button>
+    <button type="button" class="secondary" id="applySuggested" style="display:none;">Use suggested threshold</button>
+    <a href="/health" target="_blank" rel="noopener">API health</a>
+  </div>
+
+  <div id="status"></div>
+  <div class="chips" id="classChips"></div>
+
+  <div class="grid">
+    <figure>
+      <figcaption>Your upload</figcaption>
+      <img id="original" alt="Original" style="display:none;" />
+    </figure>
+    <figure>
+      <figcaption>Result (your threshold)</figcaption>
+      <img id="preview" alt="Detection result" style="display:none;" />
+    </figure>
+  </div>
+
+  <div id="peekBlock">
+    <h3>Low-threshold preview</h3>
+    <p class="sub" style="margin:0 0 0.75rem;">Same image run at a very low cutoff so you can see what the model is considering. Use the slider or <strong>Use suggested threshold</strong> to match your image.</p>
+    <img id="peekImg" alt="Low threshold preview" style="max-width:100%; border-radius:6px; display:none;" />
+    <ul class="candidates" id="peekList"></ul>
+  </div>
+
+  <p class="meta" id="meta"></p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const status = $("status");
+    const preview = $("preview");
+    const original = $("original");
+    const meta = $("meta");
+    const confEl = $("conf");
+    const confValue = $("confValue");
+    const peekBlock = $("peekBlock");
+    const peekImg = $("peekImg");
+    const peekList = $("peekList");
+    const applySuggested = $("applySuggested");
+    let lastObjectUrl = null;
+
+    confEl.addEventListener("input", () => {
+      confValue.textContent = Number(confEl.value).toFixed(2);
+    });
+
+    async function loadClasses() {
+      try {
+        const r = await fetch("/health");
+        const h = await r.json();
+        if (!h.names) return;
+        const chips = $("classChips");
+        chips.innerHTML = "";
+        const vals = typeof h.names === "object" && !Array.isArray(h.names)
+          ? Object.values(h.names) : h.names;
+        vals.forEach((n) => {
+          const s = document.createElement("span");
+          s.className = "chip";
+          s.textContent = n;
+          chips.appendChild(s);
+        });
+      } catch (_) { /* ignore */ }
+    }
+    loadClasses();
+
+    function setStatus(msg, cls) {
+      status.className = cls || "";
+      status.textContent = msg;
+    }
+
+    $("go").addEventListener("click", run);
+    applySuggested.addEventListener("click", () => {
+      const p = applySuggested.dataset.threshold;
+      if (!p) return;
+      confEl.value = String(Math.max(0.01, Math.min(0.9, Number(p))));
+      confValue.textContent = Number(confEl.value).toFixed(2);
+      run();
+    });
+
+    async function run() {
+      const f = $("file").files[0];
+      if (!f) {
+        setStatus("Choose an image first.", "error");
+        return;
+      }
+      if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
+      lastObjectUrl = URL.createObjectURL(f);
+      original.src = lastObjectUrl;
+      original.style.display = "block";
+
+      const fd = new FormData();
+      fd.append("file", f);
+      setStatus("Running inference…");
+      preview.style.display = "none";
+      peekImg.style.display = "none";
+      peekBlock.classList.remove("visible");
+      peekList.innerHTML = "";
+      meta.textContent = "";
+      applySuggested.style.display = "none";
+      $("go").disabled = true;
+
+      try {
+        const c = Number(confEl.value).toFixed(2);
+        const res = await fetch(`/predict?format=both&conf=${c}`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) {
+          setStatus(data.error || res.statusText || "Request failed", "error");
+          return;
+        }
+
+        const n = data.count ?? 0;
+        const shape = data.image_shape;
+        const shapeStr = shape ? ` (${shape.width}×${shape.height}px)` : "";
+
+        if (data.image_base64) {
+          preview.src = "data:image/jpeg;base64," + data.image_base64;
+          preview.style.display = "block";
+        }
+
+        if (n > 0) {
+          setStatus(`Done — ${n} detection(s) at confidence ≥ ${Number(data.conf).toFixed(2)}.` + shapeStr, "ok");
+          peekBlock.classList.remove("visible");
+        } else {
+          setStatus("No detections at this threshold." + shapeStr, "");
+        }
+
+        let metaParts = [
+          "Weights: " + (data.weights || "").split(/[/\\]/).pop(),
+          "Device: " + (data.device || ""),
+          "Threshold: " + Number(data.conf).toFixed(2),
+        ];
+        meta.textContent = metaParts.join(" · ");
+
+        if (data.peek && data.peek.candidates && data.peek.candidates.length) {
+          const maxP = (data.peek.max_confidence * 100).toFixed(1);
+          const sug = data.peek.suggested_threshold;
+          applySuggested.dataset.threshold = String(sug);
+          applySuggested.style.display = "inline-block";
+          applySuggested.textContent = `Use suggested ${sug}`;
+
+          if (n === 0) {
+            setStatus(
+              `No boxes above ${Number(data.conf).toFixed(2)}. Strongest signal in this image is about ${maxP}% — try the suggested threshold or drag the slider down.`,
+              ""
+            );
+          }
+
+          peekBlock.classList.add("visible");
+          if (data.image_peek_base64) {
+            peekImg.src = "data:image/jpeg;base64," + data.image_peek_base64;
+            peekImg.style.display = "block";
+          }
+          data.peek.candidates.forEach((d) => {
+            const li = document.createElement("li");
+            li.textContent = `${d.class_name} — ${(d.confidence * 100).toFixed(1)}%`;
+            peekList.appendChild(li);
+          });
+        } else if (n === 0) {
+          setStatus(
+            (status.textContent ? status.textContent + " " : "") +
+            "The model did not find any orchid-stage objects in this image (even at a very low cutoff). Try another photo that clearly shows your crop, similar to your training images.",
+            ""
+          );
+        }
+      } catch (e) {
+        setStatus(String(e), "error");
+      } finally {
+        $("go").disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
