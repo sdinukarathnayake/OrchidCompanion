@@ -52,6 +52,11 @@ MODEL = YOLO(str(MODEL_PATH))
 
 app = Flask(__name__)
 
+
+@app.context_processor
+def _inject_model_meta():
+    return {"model_filename": MODEL_PATH.name}
+
 DEFAULT_CONF = 0.25
 DEFAULT_IMGSZ = 512
 MIN_RELIABLE_CONF = 0.05
