@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Orchid YOLO Mobile",
+    "slug": "orchid-yolo-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Orchid YOLO Mobile to access your photos so you can send an image to the YOLOv8 server.",
+          "cameraPermission": "Allow Orchid YOLO Mobile to use your camera so you can capture an image for YOLOv8 prediction."
+        }
+      ]
+    ],
+    "extra": {
+      "defaultServerPort": 5008
+    }
+  }
+}
