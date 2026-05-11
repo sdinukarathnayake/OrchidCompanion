@@ -3,95 +3,304 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YOLOv8 Browser Inference</title>
+    <meta name="description" content="Run YOLOv8 orchid stage detection in your browser" />
+    <title>Orchid detection — YOLOv8</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
-    <main class="container">
-      <h1>YOLOv8 Orchid stage detection</h1>
-      <p class="hint">Model: {{ model_path }}</p>
-      <p class="hint">Classes: {{ model_classes|join(', ') }}</p>
+    <a class="skip-link" href="#main">Skip to main content</a>
 
-      <form action="/predict" method="post" enctype="multipart/form-data" class="card">
-        <label for="image">Choose an image (jpg, jpeg, png)</label>
-        <input id="image" type="file" name="image" accept="image/*" required />
-        <label for="conf">Confidence threshold (lower = more boxes)</label>
-        <input id="conf" type="number" name="conf" min="0.01" max="0.95" step="0.01" value="{{ conf }}" />
-        <button type="submit">Run detection</button>
-      </form>
+    <header class="site-header">
+      <div class="site-header__inner">
+        <div class="brand">
+          <span class="brand__mark" aria-hidden="true">◈</span>
+          <div>
+            <p class="brand__title">Orchid stage detection</p>
+            <p class="brand__subtitle">YOLOv8 · local inference</p>
+          </div>
+        </div>
+        <span class="pill pill--muted" title="Loaded weights">{{ model_filename }}</span>
+      </div>
+    </header>
 
-      {% if error %}
-      <section class="error">{{ error }}</section>
-      {% endif %}
-
-      {% if result_image %}
-      <section class="card">
-        <h2>Output</h2>
-        <img src="data:image/jpeg;base64,{{ result_image }}" alt="Detection output" class="result" />
+    <main id="main" class="layout">
+      <section class="panel panel--intro" aria-labelledby="intro-heading">
+        <h1 id="intro-heading" class="sr-only">Upload and run detection</h1>
+        <p class="lede">
+          Upload a photo of your orchid. The model draws boxes and lists each stage it finds, with confidence scores.
+        </p>
+        {% if model_classes %}
+        <div class="class-chips" aria-label="Model classes">
+          {% for c in model_classes %}
+          <span class="chip">{{ c }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
       </section>
 
-      <section class="card">
-        <h2>Detections</h2>
-        <p class="hint">Inference: conf={{ conf }}, imgsz={{ imgsz }}</p>
-        {% if detection_rows %}
-        <p class="hint">One row per class (multiple boxes of the same class are merged).</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Class</th>
-              <th>Max confidence</th>
-              <th>Boxes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for d in detection_rows %}
-            <tr>
-              <td>{{ d.label }}</td>
-              <td>{{ d.confidence }}</td>
-              <td>{{ d.count }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <p>No detections found.</p>
-        {% if detection_hint %}
-        <p class="warn">{{ detection_hint }}</p>
+      <section class="panel panel--form" aria-labelledby="form-heading">
+        <h2 id="form-heading" class="panel__title">1. Choose image &amp; settings</h2>
+
+        <form
+          id="predict-form"
+          class="upload-form"
+          action="{{ url_for('predict') }}"
+          method="post"
+          enctype="multipart/form-data"
+        >
+          <div
+            class="drop-zone"
+            id="drop-zone"
+            data-empty-label="Drag an image here, or click to browse"
+            data-file-label="Selected: "
+          >
+            <input
+              id="image"
+              class="drop-zone__input"
+              type="file"
+              name="image"
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              required
+            />
+            <div class="drop-zone__content">
+              <span class="drop-zone__icon" aria-hidden="true"></span>
+              <p class="drop-zone__text" id="drop-zone-label">Drag an image here, or click to browse</p>
+              <p class="drop-zone__hint">JPG, PNG, or WebP · one image at a time</p>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field__head">
+              <label for="conf">Confidence threshold</label>
+              <output class="field__value" for="conf" id="conf-out">{{ '%.2f'|format(conf|float) }}</output>
+            </div>
+            <p class="field__help">Higher = fewer, surer boxes. Lower = more boxes, including uncertain ones.</p>
+            <input
+              type="range"
+              id="conf"
+              name="conf"
+              min="0.01"
+              max="0.95"
+              step="0.01"
+              value="{{ conf }}"
+            />
+            <div class="range-ticks" aria-hidden="true">
+              <span>0.01</span>
+              <span>0.5</span>
+              <span>0.95</span>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn--primary" id="submit-btn">
+              <span class="btn__label">Run detection</span>
+              <span class="btn__spinner" aria-hidden="true"></span>
+            </button>
+          </div>
+        </form>
+
+        {% if error %}
+        <div class="alert alert--error" role="alert">
+          <strong>Something went wrong</strong>
+          <p>{{ error }}</p>
+        </div>
         {% endif %}
-        {% endif %}
+      </section>
+
+      {% if result_image %}
+      <section class="panel panel--results" aria-labelledby="results-heading">
+        <h2 id="results-heading" class="panel__title">2. Results</h2>
+
+        <div class="results-grid">
+          <figure class="result-figure">
+            <figcaption class="result-figure__cap">Annotated image</figcaption>
+            <img
+              src="data:image/jpeg;base64,{{ result_image }}"
+              alt="Your photo with detection boxes drawn by the model"
+              class="result-img"
+              loading="lazy"
+            />
+          </figure>
+
+          <div class="results-side">
+            <div class="stat-row">
+              <span class="stat">Inference</span>
+              <span class="stat stat--strong">conf {{ conf }}, size {{ imgsz }}</span>
+            </div>
+
+            {% if detection_rows %}
+            <div class="table-wrap">
+              <table class="data-table">
+                <caption class="sr-only">Detections grouped by class</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Stage</th>
+                    <th scope="col">Confidence</th>
+                    <th scope="col">Boxes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for d in detection_rows %}
+                  <tr>
+                    <td>{{ d.label }}</td>
+                    <td><span class="conf-pill">{{ '%.1f'|format(d.confidence * 100) }}%</span></td>
+                    <td>{{ d.count }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <p class="fine-print">Multiple boxes of the same stage are merged; confidence is the strongest match in that stage.</p>
+            {% if detection_hint %}
+            <div class="alert alert--info" role="status">
+              <p>{{ detection_hint }}</p>
+            </div>
+            {% endif %}
+            {% else %}
+            <p class="empty-state">No detections passed your threshold.</p>
+            {% if detection_hint %}
+            <div class="alert alert--warn" role="status">
+              <p>{{ detection_hint }}</p>
+            </div>
+            {% endif %}
+            {% endif %}
+          </div>
+        </div>
       </section>
 
       {% if best_guess %}
-      <section class="card best-guess">
-        <h2>Fallback best guess</h2>
-        <p class="guess-label">{{ best_guess.label }}</p>
-        <p class="hint">Confidence: {{ best_guess.confidence }} | Support: {{ best_guess.count }}</p>
-        <p class="warn">Low-confidence fallback — not a reliable detection.</p>
+      <section class="panel panel--guess" aria-labelledby="guess-heading">
+        <h2 id="guess-heading" class="panel__title">Fallback estimate</h2>
+        <p class="guess-stage">{{ best_guess.label }}</p>
+        <p class="fine-print">Rough signal only — confidence {{ best_guess.confidence }}, {{ best_guess.count }} supporting box(es). Not a reliable detection.</p>
       </section>
       {% endif %}
 
-      {% if diagnostics %}
-      <section class="card">
-        <h2>Diagnostics</h2>
-        <p class="hint">Image size: {{ diagnostics.image_size }}</p>
-        <p class="hint">Boxes at selected conf: {{ diagnostics.boxes_at_selected_conf }}</p>
-        {% if diagnostics.boxes_at_probe_conf is not none %}
-        <p class="hint">Boxes at probe conf=0.001: {{ diagnostics.boxes_at_probe_conf }}</p>
-        {% endif %}
-        {% if diagnostics.max_conf_at_probe is not none %}
-        <p class="hint">Max confidence at probe: {{ diagnostics.max_conf_at_probe }}</p>
-        {% endif %}
-        {% if diagnostics.adaptive_conf_used is not none %}
-        <p class="hint">Adaptive confidence used: {{ diagnostics.adaptive_conf_used }}</p>
-        {% endif %}
-        {% if diagnostics.best_guess_label %}
-        <p class="hint">Best guess label: {{ diagnostics.best_guess_label }}</p>
-        <p class="hint">Best guess confidence: {{ diagnostics.best_guess_confidence }}</p>
-        <p class="hint">Best guess support: {{ diagnostics.best_guess_support }}</p>
-        {% endif %}
-      </section>
+      <details class="panel panel--details" id="tech-details">
+        <summary class="details-summary">Technical details</summary>
+        <div class="details-body">
+          <dl class="kv">
+            <dt>Weights file</dt>
+            <dd><code class="path">{{ model_path }}</code></dd>
+            {% if diagnostics %}
+            <dt>Image size</dt>
+            <dd>{{ diagnostics.image_size }}</dd>
+            <dt>Boxes at your threshold</dt>
+            <dd>{{ diagnostics.boxes_at_selected_conf }}</dd>
+            {% if diagnostics.boxes_at_probe_conf is not none %}
+            <dt>Boxes at probe (0.001)</dt>
+            <dd>{{ diagnostics.boxes_at_probe_conf }}</dd>
+            {% endif %}
+            {% if diagnostics.max_conf_at_probe is not none %}
+            <dt>Max confidence (probe)</dt>
+            <dd>{{ diagnostics.max_conf_at_probe }}</dd>
+            {% endif %}
+            {% if diagnostics.adaptive_conf_used is not none %}
+            <dt>Auto-adjusted confidence</dt>
+            <dd>{{ diagnostics.adaptive_conf_used }}</dd>
+            {% endif %}
+            {% if diagnostics.best_guess_label %}
+            <dt>Probe best guess</dt>
+            <dd>{{ diagnostics.best_guess_label }} ({{ diagnostics.best_guess_confidence }}, support {{ diagnostics.best_guess_support }})</dd>
+            {% endif %}
+            {% endif %}
+          </dl>
+        </div>
+      </details>
       {% endif %}
+
+      {% if not result_image %}
+      <details class="panel panel--details">
+        <summary class="details-summary">Technical details</summary>
+        <div class="details-body">
+          <dl class="kv">
+            <dt>Weights file</dt>
+            <dd><code class="path">{{ model_path }}</code></dd>
+            <dt>Input size</dt>
+            <dd>{{ imgsz }} px (fixed for this app)</dd>
+          </dl>
+        </div>
+      </details>
       {% endif %}
     </main>
+
+    <footer class="site-footer">
+      <p>Runs entirely on your machine while this page is open. For best results, use photos similar to your training set.</p>
+    </footer>
+
+    <div class="loading-overlay" id="loading-overlay" aria-hidden="true" role="status">
+      <div class="loading-overlay__box">
+        <div class="loading-overlay__spinner" aria-hidden="true"></div>
+        <p class="loading-overlay__text">Running model…</p>
+        <p class="loading-overlay__sub">First run can take a few seconds.</p>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        var form = document.getElementById("predict-form");
+        var overlay = document.getElementById("loading-overlay");
+        var submitBtn = document.getElementById("submit-btn");
+        var conf = document.getElementById("conf");
+        var confOut = document.getElementById("conf-out");
+        var zone = document.getElementById("drop-zone");
+        var input = document.getElementById("image");
+        var labelEl = document.getElementById("drop-zone-label");
+
+        if (conf && confOut) {
+          function syncConf() {
+            var v = parseFloat(conf.value);
+            confOut.textContent = (isNaN(v) ? conf.value : v.toFixed(2));
+          }
+          conf.addEventListener("input", syncConf);
+          syncConf();
+        }
+
+        if (form && overlay && submitBtn) {
+          form.addEventListener("submit", function () {
+            if (!form.checkValidity()) return;
+            overlay.classList.add("is-visible");
+            overlay.setAttribute("aria-hidden", "false");
+            submitBtn.disabled = true;
+            submitBtn.classList.add("is-busy");
+          });
+        }
+
+        function setDropLabel(file) {
+          if (!labelEl || !zone) return;
+          var empty = zone.getAttribute("data-empty-label") || "";
+          var prefix = zone.getAttribute("data-file-label") || "";
+          labelEl.textContent = file ? prefix + file.name : empty;
+          zone.classList.toggle("has-file", !!file);
+        }
+
+        if (input && zone) {
+          input.addEventListener("change", function () {
+            setDropLabel(input.files && input.files[0] ? input.files[0] : null);
+          });
+
+          ["dragenter", "dragover"].forEach(function (ev) {
+            zone.addEventListener(ev, function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              zone.classList.add("is-dragover");
+            });
+          });
+          ["dragleave", "drop"].forEach(function (ev) {
+            zone.addEventListener(ev, function (e) {
+              e.preventDefault();
+              e.stopPropagation();
+              zone.classList.remove("is-dragover");
+            });
+          });
+          zone.addEventListener("drop", function (e) {
+            var dt = e.dataTransfer;
+            if (!dt || !dt.files || !dt.files.length) return;
+            input.files = dt.files;
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          });
+        }
+      })();
+    </script>
   </body>
 </html>
